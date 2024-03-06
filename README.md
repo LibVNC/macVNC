@@ -24,6 +24,13 @@ macVNC uses CMake, thus it's:
     cmake ..
     cmake --build .
 
+# Running
+
+As you might have Apple's Remote Desktop Server already running (which occupies port 5900),
+you can run macVNC via
+
+    ./macvnc -rfbport 5901
+
 # License
 
 As its predecessors, macVNC is licensed under the GPL version 2. See [COPYING](COPYING) for more information.
