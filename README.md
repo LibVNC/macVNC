@@ -17,7 +17,11 @@ GPL dump by AT&T Cambridge.
 
 # Building
 
-macVNC uses CMake, thus it's:
+You'll need LibVNCServer for building macVNC; the easiest way of installing this is via a package manager:
+If using Homebrew, you can install via `brew install libvncserver`; if using MacPorts, use `sudo port
+install LibVNCServer`.
+
+macVNC uses CMake, thus after installing build dependencies it's:
 
     mkdir build
     cd build
