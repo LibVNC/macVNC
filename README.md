@@ -35,6 +35,10 @@ you can run macVNC via
 
     ./macvnc -rfbport 5901
 
+In its default setup, macVNC does mouse and keyboard input. For this, it needs certain system permissions.
+It tells you on first run if these are missing; you can set up permissions via 'System Preferences'->'Security & Privacy'->'Privacy'->'Accessibility'.
+Note that if launched from Terminal, the entry shown will be 'Terminal', not 'macVNC'.
+
 # License
 
 As its predecessors, macVNC is licensed under the GPL version 2. See [COPYING](COPYING) for more information.
