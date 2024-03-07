@@ -70,7 +70,6 @@ static rfbBool sleep_time_saved       = FALSE;
 
 /* some variables to enable special behaviour */
 int startTime = -1, maxSecsToConnect = 0;
-rfbBool disconnectAfterFirstClient = TRUE;
 
 /* a dictionary mapping characters to keycodes */
 CFMutableDictionaryRef charKeyMap;
@@ -650,7 +649,7 @@ ScreenInit(int argc, char**argv)
 
 void clientGone(rfbClientPtr cl)
 {
-  serverShutdown(cl);
+    //TODO
 }
 
 enum rfbNewClientAction newClient(rfbClientPtr cl)
@@ -658,9 +657,7 @@ enum rfbNewClientAction newClient(rfbClientPtr cl)
   if(startTime>0 && time(0)>startTime+maxSecsToConnect)
     serverShutdown(cl);
 
-  if(disconnectAfterFirstClient)
-    cl->clientGoneHook = clientGone;
-
+  cl->clientGoneHook = clientGone;
   cl->viewOnly = viewOnly;
 
   return(RFB_CLIENT_ACCEPT);
@@ -674,8 +671,6 @@ int main(int argc,char *argv[])
     if(i<argc-1 && strcmp(argv[i],"-wait4client")==0) {
       maxSecsToConnect = atoi(argv[i+1])/1000;
       startTime = time(0);
-    } else if(strcmp(argv[i],"-runforever")==0) {
-      disconnectAfterFirstClient = FALSE;
     } else if(strcmp(argv[i],"-viewonly")==0) {
       viewOnly=TRUE;
     } else if(strcmp(argv[i],"-shared")==0) {
