@@ -227,7 +227,11 @@ dimmingInit(void)
 {
     pthread_mutex_init(&dimming_mutex, NULL);
 
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_VERSION_12_0
+    if (IOMainPort(bootstrap_port, &master_dev_port) != kIOReturnSuccess)
+#else
     if (IOMasterPort(bootstrap_port, &master_dev_port) != kIOReturnSuccess)
+#endif
         return -1;
 
     if (!(power_mgt = IOPMFindPowerManagement(master_dev_port)))
