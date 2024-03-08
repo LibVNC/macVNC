@@ -39,7 +39,7 @@
 /* The main LibVNCServer screen object */
 rfbScreenInfoPtr rfbScreen;
 /* Operation modes set by CLI options */
-rfbBool viewOnly = FALSE, sharedMode = FALSE;
+rfbBool viewOnly = FALSE;
 
 /* Two framebuffers. */
 void *frameBufferOne;
@@ -559,10 +559,6 @@ ScreenInit(int argc, char**argv)
   rfbScreen->ptrAddEvent = PtrAddEvent;
   rfbScreen->kbdAddEvent = KbdAddEvent;
 
-  if(sharedMode) {
-    rfbScreen->alwaysShared = TRUE;
-  }
-
   dispatch_queue_t dispatchQueue = dispatch_queue_create("libvncserver.examples.mac", NULL);
   CGDisplayStreamRef stream = CGDisplayStreamCreateWithDispatchQueue(displayID,
 								     CGDisplayPixelsWide(displayID),
@@ -661,8 +657,6 @@ int main(int argc,char *argv[])
   for(i=argc-1;i>0;i--)
     if(strcmp(argv[i],"-viewonly")==0) {
       viewOnly=TRUE;
-    } else if(strcmp(argv[i],"-shared")==0) {
-      sharedMode=TRUE;
     } else if(strcmp(argv[i],"-display")==0) {
 	displayNumber = atoi(argv[i+1]);
     }
