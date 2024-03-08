@@ -387,11 +387,7 @@ KbdAddEvent(rfbBool down, rfbKeySym keySym, struct _rfbClientRec* cl)
 
 /* Synthesize a mouse event. This is not called on the main thread due to rfbRunEventLoop(..,..,TRUE), but it works. */
 void
-PtrAddEvent(buttonMask, x, y, cl)
-    int buttonMask;
-    int x;
-    int y;
-    rfbClientPtr cl;
+PtrAddEvent(int buttonMask, int x, int y, rfbClientPtr cl)
 {
     CGPoint position;
     CGRect displayBounds = CGDisplayBounds(displayID);
