@@ -35,6 +35,7 @@
 #include <IOKit/pwr_mgt/IOPM.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <stdlib.h>
 
 /* The main LibVNCServer screen object */
 rfbScreenInfoPtr rfbScreen;
@@ -659,6 +660,11 @@ int main(int argc,char *argv[])
       viewOnly=TRUE;
     } else if(strcmp(argv[i],"-display")==0) {
 	displayNumber = atoi(argv[i+1]);
+    } else if(strcmp(argv[i],"-h") == 0 || strcmp(argv[i],"--help") == 0)  {
+        fprintf(stderr, "-viewonly              Do not allow any input\n");
+        fprintf(stderr, "-display <index>       Only export specified display\n");
+        rfbUsage();
+        exit(EXIT_SUCCESS);
     }
 
   if(!viewOnly && !AXIsProcessTrusted()) {
