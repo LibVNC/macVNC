@@ -68,9 +68,6 @@ static rfbBool initialized            = FALSE;
 static rfbBool dim_time_saved         = FALSE;
 static rfbBool sleep_time_saved       = FALSE;
 
-/* some variables to enable special behaviour */
-int startTime = -1, maxSecsToConnect = 0;
-
 /* a dictionary mapping characters to keycodes */
 CFMutableDictionaryRef charKeyMap;
 
@@ -585,9 +582,6 @@ ScreenInit(int argc, char**argv)
 									     size_t updatedRectsCount;
 									     size_t r;
 
-									     if(startTime>0 && time(0)>startTime+maxSecsToConnect)
-										 serverShutdown(0);
-
 									     /*
 									       Copy new frame to back buffer.
 									     */
@@ -654,9 +648,6 @@ void clientGone(rfbClientPtr cl)
 
 enum rfbNewClientAction newClient(rfbClientPtr cl)
 {
-  if(startTime>0 && time(0)>startTime+maxSecsToConnect)
-    serverShutdown(cl);
-
   cl->clientGoneHook = clientGone;
   cl->viewOnly = viewOnly;
 
@@ -668,10 +659,7 @@ int main(int argc,char *argv[])
   int i;
 
   for(i=argc-1;i>0;i--)
-    if(i<argc-1 && strcmp(argv[i],"-wait4client")==0) {
-      maxSecsToConnect = atoi(argv[i+1])/1000;
-      startTime = time(0);
-    } else if(strcmp(argv[i],"-viewonly")==0) {
+    if(strcmp(argv[i],"-viewonly")==0) {
       viewOnly=TRUE;
     } else if(strcmp(argv[i],"-shared")==0) {
       sharedMode=TRUE;
