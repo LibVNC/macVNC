@@ -27,13 +27,14 @@ macVNC uses CMake, thus after installing build dependencies it's:
     cd build
     cmake ..
     cmake --build .
+    cmake --install .
 
 # Running
 
 As you might have Apple's Remote Desktop Server already running (which occupies port 5900),
 you can run macVNC via
 
-    ./macvnc -rfbport 5901
+    ./macVNC.app/Contents/MacOS/macVNC -rfbport 5901
 
 In its default setup, macVNC does mouse and keyboard input. For this, it needs certain system permissions.
 It tells you on first run if these are missing; you can set up permissions via 'System Preferences'->'Security & Privacy'->'Privacy'->'Accessibility'.
