@@ -17,3 +17,8 @@ jobs:
           cmake ..
           cmake --build .
           cmake --install .
+      - name: Archive App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: macVNC App Bundle
+          path: build/*.app
