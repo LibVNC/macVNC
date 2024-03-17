@@ -26,8 +26,29 @@ find_library(IOSURFACE_LIBRARY IOSurface REQUIRED)
 #
 set(SOURCE_FILES
     src/mac.c
+    src/icon.icns
 )
 
-add_executable(macvnc src/mac.c)
-target_link_libraries(macvnc LibVNCServer::vncserver ${CMAKE_THREAD_LIBS_INIT} ${CARBON_LIBRARY} ${IOKIT_LIBRARY} ${IOSURFACE_LIBRARY})
+#
+# Build bundle
+#
+set(MACOSX_BUNDLE_COPYRIGHT "© 2024 Christian Beier (macvnc@christianbeier.net)")
+set(MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION})
+set(MACOSX_BUNDLE_ICON_FILE icon.icns)
+set_source_files_properties(src/icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
+add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCE_FILES})
+
+target_link_libraries(${PROJECT_NAME} LibVNCServer::vncserver ${CMAKE_THREAD_LIBS_INIT} ${CARBON_LIBRARY} ${IOKIT_LIBRARY} ${IOSURFACE_LIBRARY})
+
+#
+# Install, i.e. finalise bundle
+#
+set(APP ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.app)  # paths to executables
+set(DIRS "")   # directories to search for prerequisites
+INSTALL(CODE "
+set(BU_CHMOD_BUNDLE_ITEMS ON) # as per https://cmake.org/Bug/view.php?id=13833
+include(BundleUtilities)
+fixup_bundle(\"${APP}\"   \"\"   \"${DIRS}\")
+   " COMPONENT Runtime)
+INSTALL(FILES README.md DESTINATION ${APP})
