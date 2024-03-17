@@ -16,3 +16,4 @@ jobs:
           cd build
           cmake ..
           cmake --build .
+          cmake --install .
