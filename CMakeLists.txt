@@ -25,7 +25,7 @@ find_library(IOSURFACE_LIBRARY IOSurface REQUIRED)
 # Sources
 #
 set(SOURCE_FILES
-    src/mac.c
+    src/mac.m
     src/icon.icns
 )
 
