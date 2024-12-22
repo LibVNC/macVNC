@@ -28,14 +28,16 @@
  */
 
 #include <Carbon/Carbon.h>
+#include <ScreenCaptureKit/ScreenCaptureKit.h>
 #include <rfb/rfb.h>
 #include <rfb/keysym.h>
-#include <IOSurface/IOSurface.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #include <IOKit/pwr_mgt/IOPM.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
+
+#import "ScreenCapturer.h"
 
 /* The main LibVNCServer screen object */
 rfbScreenInfoPtr rfbScreen;
@@ -560,77 +562,65 @@ ScreenInit(int argc, char**argv)
   rfbScreen->ptrAddEvent = PtrAddEvent;
   rfbScreen->kbdAddEvent = KbdAddEvent;
 
-  dispatch_queue_t dispatchQueue = dispatch_queue_create("libvncserver.examples.mac", NULL);
-  CGDisplayStreamRef stream = CGDisplayStreamCreateWithDispatchQueue(displayID,
-								     CGDisplayPixelsWide(displayID),
-								     CGDisplayPixelsHigh(displayID),
-								     'BGRA',
-								     nil,
-								     dispatchQueue,
-								     ^(CGDisplayStreamFrameStatus status,
-								       uint64_t displayTime,
-								       IOSurfaceRef frameSurface,
-								       CGDisplayStreamUpdateRef updateRef) {
+  ScreenCapturer *capturer = [[ScreenCapturer alloc] initWithDisplay: displayID
+                                                        frameHandler:^(CMSampleBufferRef sampleBuffer) {
+          rfbClientIteratorPtr iterator;
+          rfbClientPtr cl;
 
-									 if (status == kCGDisplayStreamFrameStatusFrameComplete && frameSurface != NULL) {
-									     rfbClientIteratorPtr iterator;
-									     rfbClientPtr cl;
-									     const CGRect *updatedRects;
-									     size_t updatedRectsCount;
-									     size_t r;
+           /*
+             Copy new frame to back buffer.
+           */
+          CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+          if(!pixelBuffer)
+              return;
 
-									     /*
-									       Copy new frame to back buffer.
-									     */
-									     IOSurfaceLock(frameSurface, kIOSurfaceLockReadOnly, NULL);
+          CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
-									     memcpy(backBuffer,
-										    IOSurfaceGetBaseAddress(frameSurface),
-										    CGDisplayPixelsWide(displayID) *  CGDisplayPixelsHigh(displayID) * 4);
+          memcpy(backBuffer,
+                 CVPixelBufferGetBaseAddress(pixelBuffer),
+                 CGDisplayPixelsWide(displayID) *  CGDisplayPixelsHigh(displayID) * 4);
 
-									     IOSurfaceUnlock(frameSurface, kIOSurfaceLockReadOnly, NULL);
+          CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
-									     /* Lock out client reads. */
-									     iterator=rfbGetClientIterator(rfbScreen);
-									     while((cl=rfbClientIteratorNext(iterator))) {
-										 LOCK(cl->sendMutex);
-									     }
-									     rfbReleaseClientIterator(iterator);
+          /* Lock out client reads. */
+          iterator=rfbGetClientIterator(rfbScreen);
+          while((cl=rfbClientIteratorNext(iterator))) {
+              LOCK(cl->sendMutex);
+          }
+          rfbReleaseClientIterator(iterator);
 
-									     /* Swap framebuffers. */
-									     if (backBuffer == frameBufferOne) {
-										 backBuffer = frameBufferTwo;
-										 rfbScreen->frameBuffer = frameBufferOne;
-									     } else {
-										 backBuffer = frameBufferOne;
-										 rfbScreen->frameBuffer = frameBufferTwo;
-									     }
+          /* Swap framebuffers. */
+          if (backBuffer == frameBufferOne) {
+              backBuffer = frameBufferTwo;
+              rfbScreen->frameBuffer = frameBufferOne;
+          } else {
+              backBuffer = frameBufferOne;
+              rfbScreen->frameBuffer = frameBufferTwo;
+          }
 
-									     /* Mark modified rects in new framebuffer. */
-									     updatedRects = CGDisplayStreamUpdateGetRects(updateRef, kCGDisplayStreamUpdateDirtyRects, &updatedRectsCount);
-									     for(r=0; r<updatedRectsCount; ++r) {
-										 rfbMarkRectAsModified(rfbScreen,
-												       updatedRects[r].origin.x,
-												       updatedRects[r].origin.y,
-												       updatedRects[r].origin.x + updatedRects[r].size.width,
-												       updatedRects[r].origin.y + updatedRects[r].size.height);
-									     }
+          /*
+            Mark modified rect in new framebuffer.
+            ScreenCaptureKit does not have something like CGDisplayStreamUpdateGetRects(),
+            so mark the whole framebuffer.
+           */
+          rfbMarkRectAsModified(rfbScreen, 0, 0, CGDisplayPixelsWide(displayID), CGDisplayPixelsHigh(displayID));
 
-									     /* Swapping framebuffers finished, reenable client reads. */
-									     iterator=rfbGetClientIterator(rfbScreen);
-									     while((cl=rfbClientIteratorNext(iterator))) {
-										 UNLOCK(cl->sendMutex);
-										 }
-									     rfbReleaseClientIterator(iterator);
-									 }
+          /* Swapping framebuffers finished, reenable client reads. */
+          iterator=rfbGetClientIterator(rfbScreen);
+          while((cl=rfbClientIteratorNext(iterator))) {
+              UNLOCK(cl->sendMutex);
+          }
+          rfbReleaseClientIterator(iterator);
 
-								     });
-  if(stream) {
-      CGDisplayStreamStart(stream);
-  } else {
-      rfbErr("Could not get screen contents. Check if the program has been given screen recording permissions in 'System Preferences'->'Security & Privacy'->'Privacy'->'Screen Recording'.\n");
-      return FALSE;
-  }
+      } errorHandler:^(NSError *error) {
+          fprintf(stderr, "Error: %s\n", [error.description UTF8String]);
+          if(error.code == SCStreamErrorUserDeclined) {
+              fprintf(stderr, "Could not get screen contents. Check if the program has been given screen recording permissions in 'System Preferences'->'Security & Privacy'->'Privacy'->'Screen Recording'.\n");
+          }
+          //TODO handle other errors
+          exit(EXIT_FAILURE);
+      }];
+  [capturer startCapture];
 
   rfbInitServer(rfbScreen);
 

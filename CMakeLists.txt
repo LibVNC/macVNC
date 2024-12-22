@@ -19,12 +19,17 @@ find_package(LibVNCServer REQUIRED)
 find_package(Threads REQUIRED)
 find_library(CARBON_LIBRARY Carbon REQUIRED)
 find_library(IOKIT_LIBRARY IOKit REQUIRED)
-find_library(IOSURFACE_LIBRARY IOSurface REQUIRED)
+find_library(SCREEN_CAPTURE_KIT ScreenCaptureKit REQUIRED)
+find_library(CORE_MEDIA CoreMedia)
+find_library(CORE_VIDEO CoreVideo)
+find_library(FOUNDATION Foundation)
 
 #
 # Sources
 #
 set(SOURCE_FILES
+    src/ScreenCapturer.h
+    src/ScreenCapturer.m
     src/mac.m
     src/icon.icns
 )
@@ -39,7 +44,11 @@ set_source_files_properties(src/icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Res
 
 add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCE_FILES})
 
-target_link_libraries(${PROJECT_NAME} LibVNCServer::vncserver ${CMAKE_THREAD_LIBS_INIT} ${CARBON_LIBRARY} ${IOKIT_LIBRARY} ${IOSURFACE_LIBRARY})
+target_link_libraries(${PROJECT_NAME} LibVNCServer::vncserver ${CMAKE_THREAD_LIBS_INIT} ${CARBON_LIBRARY} ${IOKIT_LIBRARY}
+  ${SCREEN_CAPTURE_KIT}
+  ${CORE_MEDIA}
+  ${CORE_VIDEO}
+  ${FOUNDATION})
 
 #
 # Install, i.e. finalise bundle
