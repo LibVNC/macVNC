@@ -60,4 +60,4 @@ set(BU_CHMOD_BUNDLE_ITEMS ON) # as per https://cmake.org/Bug/view.php?id=13833
 include(BundleUtilities)
 fixup_bundle(\"${APP}\"   \"\"   \"${DIRS}\")
    " COMPONENT Runtime)
-INSTALL(FILES README.md DESTINATION ${APP})
+INSTALL(FILES README.md DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

@@ -576,9 +576,19 @@ ScreenInit(int argc, char**argv)
 
           CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
-          memcpy(backBuffer,
-                 CVPixelBufferGetBaseAddress(pixelBuffer),
-                 CGDisplayPixelsWide(displayID) *  CGDisplayPixelsHigh(displayID) * 4);
+          {
+              size_t srcStride = CVPixelBufferGetBytesPerRow(pixelBuffer);
+              size_t width     = CVPixelBufferGetWidth(pixelBuffer);
+              size_t height    = CVPixelBufferGetHeight(pixelBuffer);
+              size_t dstStride = CGDisplayPixelsWide(displayID) * 4;
+
+              uint8_t *src = (uint8_t *)CVPixelBufferGetBaseAddress(pixelBuffer);
+              uint8_t *dst = (uint8_t *)backBuffer;
+
+              for (size_t row = 0; row < height; row++) {
+                  memcpy(dst + row * dstStride, src + row * srcStride, width * 4);
+              }
+          }
 
           CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
