@@ -3,6 +3,8 @@
 @interface ScreenCapturer ()
 
 @property (nonatomic, assign) CGDirectDisplayID displayID;
+@property (nonatomic, assign) NSUInteger width;
+@property (nonatomic, assign) NSUInteger height;
 @property (nonatomic, strong) SCStream *stream;
 
 // handlers
@@ -15,10 +17,14 @@
 @implementation ScreenCapturer
 
 - (instancetype)initWithDisplay:(CGDirectDisplayID)displayID
+                          width:(NSUInteger)width
+                         height:(NSUInteger)height
                    frameHandler:(void (^)(CMSampleBufferRef))frameHandler
                    errorHandler:(void (^)(NSError *))errorHandler {
     if (self = [super init]) {
         _displayID = displayID;
+        _width = width;
+        _height = height;
         _frameHandler = [frameHandler copy];
         _errorHandler = [errorHandler copy];
     }
@@ -45,12 +51,17 @@
         }
 
         SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
-        // can later be adjusted for server-side scaling
-        config.width = display.width;
-        config.height = display.height;
+        // set the stream output size explicitly to the framebuffer size, so the
+        // captured frames match it exactly; display.width/height would give
+        // physical pixel dimensions on Retina displays instead
+        config.width = self.width;
+        config.height = self.height;
         // set max frame rate to 60 FPS
         config.minimumFrameInterval = CMTimeMake(1, 60);
         config.pixelFormat = kCVPixelFormatType_32BGRA;
+        // unlike CGDisplayStream, ScreenCaptureKit does not draw the cursor
+        // into frames unless told to; the VNC clients rely on it being there
+        config.showsCursor = YES;
 
         SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:(display) excludingWindows:(@[])];
         self.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:self];

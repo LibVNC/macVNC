@@ -3,3 +3,5 @@
 *~
 /.cache
 /.DS_Store
+.commandcode/*
+.commandcode/taste/taste.md

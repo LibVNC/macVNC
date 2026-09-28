@@ -30,6 +30,8 @@ find_library(FOUNDATION Foundation)
 set(SOURCE_FILES
     src/ScreenCapturer.h
     src/ScreenCapturer.m
+    src/keysym2ucs.c
+    src/keysym2ucs.h
     src/mac.m
     src/icon.icns
 )

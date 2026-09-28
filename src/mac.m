@@ -29,6 +29,7 @@
 
 #include <Carbon/Carbon.h>
 #include <ScreenCaptureKit/ScreenCaptureKit.h>
+#include <CoreMedia/CoreMedia.h>
 #include <rfb/rfb.h>
 #include <rfb/keysym.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
@@ -36,8 +37,10 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <signal.h>
 
 #import "ScreenCapturer.h"
+#include "keysym2ucs.h"
 
 /* The main LibVNCServer screen object */
 rfbScreenInfoPtr rfbScreen;
@@ -163,6 +166,16 @@ static int specialKeyMap[] = {
 /* Global shifting modifier states */
 rfbBool isShiftDown;
 rfbBool isAltGrDown;
+
+/* set by the signal handler, checked by the main loop */
+static volatile sig_atomic_t shutdownRequested = FALSE;
+
+static void
+handleShutdownSignal(int sig)
+{
+    (void)sig;
+    shutdownRequested = TRUE;
+}
 
 
 static int
@@ -357,7 +370,29 @@ KbdAddEvent(rfbBool down, rfbKeySym keySym, struct _rfbClientRec* cl)
     } else {
 	/* look for char key */
 	size_t keyCodeFromDict;
-	CFStringRef charStr = CFStringCreateWithCharacters(kCFAllocatorDefault, (UniChar*)&keySym, 1);
+
+	/*
+	   Convert the keysym to Unicode. Keysyms are plain Unicode values
+	   only for Latin-1; for other scripts like Arabic, the keysym
+	   blocks are numerically unrelated to their Unicode blocks.
+	 */
+	UniChar chars[2];
+	int charsCount = 1;
+	long ucs = keysym2ucs(keySym);
+	if(ucs < 0 || ucs > 0x10FFFF) {
+	    /* keysym has no Unicode counterpart, keep old behaviour */
+	    chars[0] = (UniChar)keySym;
+	} else if(ucs < 0x10000) {
+	    chars[0] = (UniChar)ucs;
+	} else {
+	    /* encode as a UTF-16 surrogate pair */
+	    ucs -= 0x10000;
+	    chars[0] = 0xD800 | (ucs >> 10);
+	    chars[1] = 0xDC00 | (ucs & 0x3FF);
+	    charsCount = 2;
+	}
+
+	CFStringRef charStr = CFStringCreateWithCharacters(kCFAllocatorDefault, chars, charsCount);
 	CFMutableDictionaryRef keyMap = charKeyMap;
 	if(isShiftDown && !isAltGrDown)
 	    keyMap = charShiftKeyMap;
@@ -372,7 +407,7 @@ KbdAddEvent(rfbBool down, rfbKeySym keySym, struct _rfbClientRec* cl)
 	} else {
 	    /* last resort: use the symbol's utf-16 value, does not support modifiers though */
 	    keyboardEvent = CGEventCreateKeyboardEvent(eventSource, 0, down);
-	    CGEventKeyboardSetUnicodeString(keyboardEvent, 1, (UniChar*)&keySym);
+	    CGEventKeyboardSetUnicodeString(keyboardEvent, charsCount, chars);
         }
 
 	CFRelease(charStr);
@@ -563,9 +598,18 @@ ScreenInit(int argc, char**argv)
   rfbScreen->kbdAddEvent = KbdAddEvent;
 
   ScreenCapturer *capturer = [[ScreenCapturer alloc] initWithDisplay: displayID
+                                                               width: CGDisplayPixelsWide(displayID)
+                                                              height: CGDisplayPixelsHigh(displayID)
                                                         frameHandler:^(CMSampleBufferRef sampleBuffer) {
           rfbClientIteratorPtr iterator;
           rfbClientPtr cl;
+
+          /* changed regions of this frame, used for the update marking below */
+          CGRect dirtyRects[64];
+          int dirtyRectCount = 0;
+          static unsigned long frameCount = 0;
+          rfbBool fullUpdate = (frameCount % 300) == 0; /* full update every 300 frames as a safety net */
+          frameCount++;
 
            /*
              Copy new frame to back buffer.
@@ -576,11 +620,62 @@ ScreenInit(int argc, char**argv)
 
           CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
-          memcpy(backBuffer,
-                 CVPixelBufferGetBaseAddress(pixelBuffer),
-                 CGDisplayPixelsWide(displayID) *  CGDisplayPixelsHigh(displayID) * 4);
+          if(CVPixelBufferGetWidth(pixelBuffer) != CGDisplayPixelsWide(displayID)
+             || CVPixelBufferGetHeight(pixelBuffer) != CGDisplayPixelsHigh(displayID)) {
+              static rfbBool sizeMismatchLogged = FALSE;
+              if(!sizeMismatchLogged) {
+                  fprintf(stderr, "Captured frame is %ldx%ld, but framebuffer is %zux%zu - skipping frame\n",
+                          (long)CVPixelBufferGetWidth(pixelBuffer), (long)CVPixelBufferGetHeight(pixelBuffer),
+                          CGDisplayPixelsWide(displayID), CGDisplayPixelsHigh(displayID));
+                  sizeMismatchLogged = TRUE;
+              }
+              CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+              return;
+          }
+
+          /*
+            Copy row by row: the pixel buffer's bytesPerRow can include padding,
+            so a single flat memcpy of the whole buffer would shear the image.
+          */
+          {
+              const uint8_t *srcBase = CVPixelBufferGetBaseAddress(pixelBuffer);
+              size_t srcBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+              uint8_t *dstBase = backBuffer;
+              size_t dstBytesPerRow = CGDisplayPixelsWide(displayID) * 4;
+              size_t bytesPerRowToCopy = srcBytesPerRow < dstBytesPerRow ? srcBytesPerRow : dstBytesPerRow;
+
+              for(size_t y = 0; y < CGDisplayPixelsHigh(displayID); ++y)
+                  memcpy(dstBase + y * dstBytesPerRow,
+                         srcBase + y * srcBytesPerRow,
+                         bytesPerRowToCopy);
+          }
 
           CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+
+          /*
+            ScreenCaptureKit tags every frame with the rects that actually changed
+            since the previous one (macOS 14+). Using them instead of marking the
+            whole framebuffer drastically reduces the amount of data sent to
+            clients. The key is spelled as a literal string so the binary still
+            loads on older macOS, where we fall back to marking everything.
+          */
+          if(!fullUpdate) {
+              CFArrayRef dirtyRectArray = NULL;
+              if(@available(macOS 14.0, *))
+                  dirtyRectArray = (CFArrayRef)CMGetAttachment(sampleBuffer, (__bridge CFStringRef)@"SCStreamFrameInfoDirtyRects", NULL);
+              if(dirtyRectArray) {
+                  CGRect bounds = CGRectMake(0, 0, CGDisplayPixelsWide(displayID), CGDisplayPixelsHigh(displayID));
+                  CFIndex i, count = CFArrayGetCount(dirtyRectArray);
+                  for(i = 0; i < count && dirtyRectCount < 64; ++i) {
+                      CGRect rect;
+                      if(CGRectMakeWithDictionaryRepresentation((CFDictionaryRef)CFArrayGetValueAtIndex(dirtyRectArray, i), &rect)) {
+                          rect = CGRectIntersection(rect, bounds);
+                          if(!CGRectIsEmpty(rect))
+                              dirtyRects[dirtyRectCount++] = rect;
+                      }
+                  }
+              }
+          }
 
           /* Lock out client reads. */
           iterator=rfbGetClientIterator(rfbScreen);
@@ -599,11 +694,22 @@ ScreenInit(int argc, char**argv)
           }
 
           /*
-            Mark modified rect in new framebuffer.
-            ScreenCaptureKit does not have something like CGDisplayStreamUpdateGetRects(),
-            so mark the whole framebuffer.
-           */
-          rfbMarkRectAsModified(rfbScreen, 0, 0, CGDisplayPixelsWide(displayID), CGDisplayPixelsHigh(displayID));
+            Mark the changed regions in the new framebuffer. Rects are in the
+            stream's coordinate space, which matches the framebuffer 1:1.
+          */
+          if(dirtyRectCount == 0) {
+              rfbMarkRectAsModified(rfbScreen, 0, 0, CGDisplayPixelsWide(displayID), CGDisplayPixelsHigh(displayID));
+          } else {
+              int i;
+              for(i = 0; i < dirtyRectCount; ++i) {
+                  CGRect rect = dirtyRects[i];
+                  rfbMarkRectAsModified(rfbScreen,
+                                        (int)rect.origin.x,
+                                        (int)rect.origin.y,
+                                        (int)ceil(rect.origin.x + rect.size.width),
+                                        (int)ceil(rect.origin.y + rect.size.height));
+              }
+          }
 
           /* Swapping framebuffers finished, reenable client reads. */
           iterator=rfbGetClientIterator(rfbScreen);
@@ -623,6 +729,9 @@ ScreenInit(int argc, char**argv)
   [capturer startCapture];
 
   rfbInitServer(rfbScreen);
+
+  if(!rfbScreen->authPasswdData)
+      fprintf(stderr, "Warning: no password set, clients can connect without authentication. Set one via -passwd.\n");
 
   return TRUE;
 }
@@ -649,6 +758,10 @@ int main(int argc,char *argv[])
     if(strcmp(argv[i],"-viewonly")==0) {
       viewOnly=TRUE;
     } else if(strcmp(argv[i],"-display")==0) {
+	if(i+1 >= argc) {
+	    fprintf(stderr, "-display requires an argument\n");
+	    exit(EXIT_FAILURE);
+	}
 	displayNumber = atoi(argv[i+1]);
     } else if(strcmp(argv[i],"-h") == 0 || strcmp(argv[i],"--help") == 0)  {
         fprintf(stderr, "-viewonly              Do not allow any input\n");
@@ -676,13 +789,20 @@ int main(int argc,char *argv[])
       exit(1);
   rfbScreen->newClientHook = newClient;
 
+  signal(SIGINT, handleShutdownSignal);
+  signal(SIGTERM, handleShutdownSignal);
+
   rfbRunEventLoop(rfbScreen,-1,TRUE);
 
   /*
      The VNC machinery is in the background now and framebuffer updating happens on another thread as well.
   */
   while(1) {
-      /* Nothing left to do on the main thread. */
+      if(shutdownRequested) {
+          /* restore the pre-existing dim/sleep settings before quitting */
+          dimmingShutdown();
+          exit(0);
+      }
       sleep(1);
   }
 
